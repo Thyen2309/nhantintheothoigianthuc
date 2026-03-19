@@ -1,6 +1,8 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const connectDB = require("../config/db");
+const { createMemoryUser, findMemoryUserByName } = require("../store/memoryStore");
 
 const signToken = (user) =>
   jwt.sign(
@@ -20,16 +22,20 @@ const register = async (req, res) => {
       return res.status(400).json({ message: "Name and password are required" });
     }
 
-    const existingUser = await User.findOne({ name: name.trim() });
+    const existingUser = connectDB.databaseReady()
+      ? await User.findOne({ name: name.trim() })
+      : await findMemoryUserByName(name);
+
     if (existingUser) {
       return res.status(409).json({ message: "User already exists" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({
-      name: name.trim(),
-      password: hashedPassword,
-    });
+    const user = connectDB.databaseReady()
+      ? await User.create({
+          name: name.trim(),
+          password: await bcrypt.hash(password, 10),
+        })
+      : await createMemoryUser({ name, password });
 
     res.status(201).json({
       token: signToken(user),
@@ -38,7 +44,7 @@ const register = async (req, res) => {
         name: user.name,
       },
     });
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ message: "Registration failed" });
   }
 };
@@ -51,7 +57,10 @@ const login = async (req, res) => {
       return res.status(400).json({ message: "Name and password are required" });
     }
 
-    const user = await User.findOne({ name: name.trim() });
+    const user = connectDB.databaseReady()
+      ? await User.findOne({ name: name.trim() })
+      : await findMemoryUserByName(name);
+
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -68,7 +77,7 @@ const login = async (req, res) => {
         name: user.name,
       },
     });
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ message: "Login failed" });
   }
 };
