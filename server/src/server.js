@@ -7,6 +7,7 @@ const { Server } = require("socket.io");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const userRoutes = require("./routes/userRoutes");
 const Message = require("./models/Message");
 const { verifySocketToken } = require("./middleware/authMiddleware");
 const { createMemoryMessage } = require("./store/memoryStore");
@@ -34,6 +35,7 @@ app.get("/", (_req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/users", userRoutes);
 
 const io = new Server(server, {
   cors: {
@@ -44,83 +46,99 @@ const io = new Server(server, {
 
 io.use(verifySocketToken);
 
-const roomTypers = new Map();
-const roomOnlineUsers = new Map();
+const onlineUsers = new Set();
+const typingPairs = new Map();
 
-const emitOnlineUsers = (room) => {
-  const users = roomOnlineUsers.has(room) ? Array.from(roomOnlineUsers.get(room)) : [];
-  io.to(room).emit("online_users", users);
+const pairKey = (a, b) => [a, b].sort().join("::");
+const emitOnlineUsers = () => {
+  io.emit("online_users", Array.from(onlineUsers));
 };
 
 io.on("connection", (socket) => {
-  socket.on("join_room", (room = "general") => {
-    socket.join(room);
-    socket.currentRoom = room;
+  const userName = socket.user.name;
+  socket.join(`user:${userName}`);
+  onlineUsers.add(userName);
+  emitOnlineUsers();
 
-    if (!roomOnlineUsers.has(room)) {
-      roomOnlineUsers.set(room, new Set());
-    }
-
-    roomOnlineUsers.get(room).add(socket.user.name);
-    emitOnlineUsers(room);
-  });
-
-  socket.on("typing_start", ({ room = "general" }) => {
-    if (!roomTypers.has(room)) {
-      roomTypers.set(room, new Set());
-    }
-
-    roomTypers.get(room).add(socket.user.name);
-    socket.to(room).emit("typing_users", Array.from(roomTypers.get(room)));
-  });
-
-  socket.on("typing_stop", ({ room = "general" }) => {
-    if (!roomTypers.has(room)) {
+  socket.on("typing_start", ({ recipient }) => {
+    if (!recipient || recipient === userName) {
       return;
     }
 
-    roomTypers.get(room).delete(socket.user.name);
-    socket.to(room).emit("typing_users", Array.from(roomTypers.get(room)));
+    const key = pairKey(userName, recipient);
+    if (!typingPairs.has(key)) {
+      typingPairs.set(key, new Set());
+    }
+
+    typingPairs.get(key).add(userName);
+    io.to(`user:${recipient}`).emit("typing_status", {
+      from: userName,
+      isTyping: true,
+    });
   });
 
-  socket.on("send_message", async ({ room = "general", text }) => {
-    if (!text || !text.trim()) {
+  socket.on("typing_stop", ({ recipient }) => {
+    if (!recipient || recipient === userName) {
       return;
     }
 
-    if (roomTypers.has(room)) {
-      roomTypers.get(room).delete(socket.user.name);
-      socket.to(room).emit("typing_users", Array.from(roomTypers.get(room)));
+    const key = pairKey(userName, recipient);
+    typingPairs.get(key)?.delete(userName);
+    io.to(`user:${recipient}`).emit("typing_status", {
+      from: userName,
+      isTyping: false,
+    });
+  });
+
+  socket.on("send_message", async ({ recipient, text }) => {
+    if (!recipient || recipient === userName || !text || !text.trim()) {
+      return;
     }
+
+    const key = pairKey(userName, recipient);
+    typingPairs.get(key)?.delete(userName);
+    io.to(`user:${recipient}`).emit("typing_status", {
+      from: userName,
+      isTyping: false,
+    });
 
     const message = connectDB.databaseReady()
       ? await Message.create({
-          sender: socket.user.name,
+          sender: userName,
+          recipient,
           text: text.trim(),
         })
       : await createMemoryMessage({
-          sender: socket.user.name,
+          sender: userName,
+          recipient,
           text: text.trim(),
         });
 
-    io.to(room).emit("receive_message", {
+    io.to(`user:${userName}`).to(`user:${recipient}`).emit("receive_message", {
       _id: message._id,
       sender: message.sender,
+      recipient: message.recipient,
       text: message.text,
       timestamp: message.timestamp,
     });
   });
 
   socket.on("disconnect", () => {
-    for (const [room, typers] of roomTypers.entries()) {
-      if (typers.delete(socket.user.name)) {
-        socket.to(room).emit("typing_users", Array.from(typers));
-      }
-    }
+    onlineUsers.delete(userName);
+    emitOnlineUsers();
 
-    for (const [room, onlineUsers] of roomOnlineUsers.entries()) {
-      if (onlineUsers.delete(socket.user.name)) {
-        emitOnlineUsers(room);
+    for (const [key, typers] of typingPairs.entries()) {
+      if (typers.delete(userName)) {
+        const otherUser = key
+          .split("::")
+          .find((name) => name !== userName);
+
+        if (otherUser) {
+          io.to(`user:${otherUser}`).emit("typing_status", {
+            from: userName,
+            isTyping: false,
+          });
+        }
       }
     }
 

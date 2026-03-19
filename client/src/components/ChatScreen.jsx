@@ -18,42 +18,37 @@ const formatMessageTime = (value) => {
   }).format(date);
 };
 
-const formatActiveText = (timestamp, typingUsers, onlineUsers) => {
-  if (onlineUsers.length > 0) {
-    return "Dang online";
+const formatSidebarTime = (value) => {
+  if (!value) {
+    return "";
   }
 
-  if (typingUsers.length > 0) {
-    return "Dang online";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
   }
 
-  if (!timestamp) {
-    return "Chua co hoat dong";
-  }
-
-  const diffMs = Date.now() - new Date(timestamp).getTime();
-  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
-
-  if (diffMinutes < 1) {
-    return "Online vua xong";
-  }
-
-  if (diffMinutes < 60) {
-    return `Active ${diffMinutes} phut truoc`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `Active ${diffHours} gio truoc`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  return `Active ${diffDays} ngay truoc`;
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 };
 
 function ChatScreen() {
   const { user, logout } = useAuth();
-  const { messages, typingUsers, onlineUsers, sendMessage, startTyping, stopTyping } = useChat();
+  const {
+    users,
+    selectedUser,
+    setSelectedUser,
+    messages,
+    onlineUsers,
+    selectedUserTyping,
+    sendMessage,
+    startTyping,
+    stopTyping,
+  } = useChat();
   const [draft, setDraft] = useState("");
   const listRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -63,7 +58,7 @@ function ChatScreen() {
       top: listRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, typingUsers]);
+  }, [messages, selectedUserTyping]);
 
   useEffect(() => () => {
     if (typingTimeoutRef.current) {
@@ -72,12 +67,22 @@ function ChatScreen() {
     stopTyping();
   }, [stopTyping]);
 
-  const lastOtherActivity = useMemo(() => {
-    const otherMessages = messages.filter((message) => message.sender !== user.name);
-    return otherMessages.length > 0 ? otherMessages[otherMessages.length - 1].timestamp : null;
-  }, [messages, user.name]);
+  const activeText = useMemo(() => {
+    if (!selectedUser) {
+      return "Chọn một người để bắt đầu trò chuyện";
+    }
 
-  const activeText = formatActiveText(lastOtherActivity, typingUsers, onlineUsers);
+    if (onlineUsers.includes(selectedUser.name)) {
+      return "Đang online";
+    }
+
+    const lastMessage = [...messages].reverse().find((message) => message.sender === selectedUser.name);
+    if (!lastMessage) {
+      return "Chưa có cuộc trò chuyện";
+    }
+
+    return `Hoạt động lúc ${formatMessageTime(lastMessage.timestamp)}`;
+  }, [messages, onlineUsers, selectedUser]);
 
   const handleDraftChange = (event) => {
     const nextValue = event.target.value;
@@ -104,7 +109,7 @@ function ChatScreen() {
 
   const handleSend = (event) => {
     event.preventDefault();
-    if (!draft.trim()) {
+    if (!draft.trim() || !selectedUser) {
       return;
     }
 
@@ -117,73 +122,122 @@ function ChatScreen() {
     setDraft("");
   };
 
-  const typingText =
-    typingUsers.length === 1
-      ? `${typingUsers[0]} dang nhap...`
-      : typingUsers.length > 1
-        ? `${typingUsers.join(", ")} dang nhap...`
-        : "";
+  const handleComposerKeyDown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSend(event);
+    }
+  };
 
   return (
     <main className="chat-shell">
-      <section className="chat-card">
-        <header className="chat-header">
-          <div>
-            <p className="brand-mark">ChattApp</p>
-            <p className="status-line">Logged in as {user.name}</p>
-            <p className="presence-line">{activeText}</p>
+      <section className="chat-card private-layout">
+        <aside className="sidebar">
+          <div className="sidebar-header">
+            <p className="brand-mark small">ChattApp</p>
+            <p className="sidebar-user">Bạn là {user.name}</p>
           </div>
-          <button className="logout-button" onClick={logout} type="button">
-            Logout
-          </button>
-        </header>
 
-        <div className="chat-list" ref={listRef}>
-          {messages.map((message) => {
-            const isOwn = message.sender === user.name;
-            return (
-              <article
-                key={message._id || `${message.sender}-${message.timestamp}`}
-                className={isOwn ? "message-row own" : "message-row other"}
-              >
-                <div className={isOwn ? "bubble own" : "bubble other"}>
-                  <div className="bubble-topline">
-                    <p className="bubble-sender">{isOwn ? "Ban" : message.sender}</p>
-                    <span className="bubble-time">{formatMessageTime(message.timestamp)}</span>
+          <div className="user-list">
+            {users.length === 0 ? <p className="empty-note">Chưa có người dùng khác đăng nhập.</p> : null}
+
+            {users.map((item) => {
+              const isActive = selectedUser?.name === item.name;
+              const isOnline = onlineUsers.includes(item.name);
+              const preview = isOnline ? "Đang hoạt động" : "Nhắn riêng với người này";
+              const lastMessage = [...messages].reverse().find(
+                (message) => message.sender === item.name || message.recipient === item.name
+              );
+
+              return (
+                <button
+                  key={item._id || item.name}
+                  type="button"
+                  className={isActive ? "user-item active" : "user-item"}
+                  onClick={() => setSelectedUser(item)}
+                >
+                  <div className="user-avatar">{item.name.slice(0, 1).toUpperCase()}</div>
+                  <div className="user-meta">
+                    <div className="user-topline">
+                      <span className="user-name">{item.name}</span>
+                      <span className="user-time">{lastMessage ? formatSidebarTime(lastMessage.timestamp) : ""}</span>
+                    </div>
+                    <div className="user-subline">
+                      <span className={isOnline ? "online-dot visible" : "online-dot"}></span>
+                      <span>{preview}</span>
+                    </div>
                   </div>
-                  <p className="bubble-text">{message.text}</p>
-                </div>
-              </article>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
-          {typingText ? (
-            <div className="message-row other typing-row">
-              <div className="typing-bubble">
-                <div className="bubble-topline">
-                  <p className="bubble-sender">{typingUsers[0]}</p>
-                  <span className="bubble-time">dang nhap</span>
-                </div>
-                <div className="typing-indicator" aria-label={typingText}>
-                  <span></span>
-                  <span></span>
-                  <span></span>
+        <section className="conversation-panel">
+          <header className="chat-header conversation-header">
+            <div>
+              <p className="conversation-title">{selectedUser ? selectedUser.name : "Chưa chọn người nhận"}</p>
+              <p className="presence-line">{activeText}</p>
+            </div>
+            <button className="logout-button" onClick={logout} type="button">
+              Đăng xuất
+            </button>
+          </header>
+
+          <div className="chat-list" ref={listRef}>
+            {!selectedUser ? <p className="empty-note centered">Hãy chọn một người ở bên trái để bắt đầu nhắn riêng.</p> : null}
+
+            {selectedUser &&
+              messages.map((message) => {
+                const isOwn = message.sender === user.name;
+                return (
+                  <article
+                    key={message._id || `${message.sender}-${message.timestamp}`}
+                    className={isOwn ? "message-row own" : "message-row other"}
+                  >
+                    <div className={isOwn ? "bubble own" : "bubble other"}>
+                      <div className="bubble-topline">
+                        <p className="bubble-sender">{isOwn ? "Bạn" : message.sender}</p>
+                        <span className="bubble-time">{formatMessageTime(message.timestamp)}</span>
+                      </div>
+                      <p className="bubble-text">{message.text}</p>
+                    </div>
+                  </article>
+                );
+              })}
+
+            {selectedUser && selectedUserTyping ? (
+              <div className="message-row other typing-row">
+                <div className="typing-bubble">
+                  <div className="bubble-topline">
+                    <p className="bubble-sender">{selectedUser.name}</p>
+                    <span className="bubble-time">đang nhập</span>
+                  </div>
+                  <div className="typing-indicator" aria-label={`${selectedUser.name} đang nhập...`}>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
 
-        <form className="composer" onSubmit={handleSend}>
-          <textarea
-            value={draft}
-            onChange={handleDraftChange}
-            onBlur={stopTyping}
-            placeholder="Type a message..."
-            rows={3}
-          />
-          <button type="submit">Send</button>
-        </form>
+          <form className="composer" onSubmit={handleSend}>
+            <textarea
+              value={draft}
+              onChange={handleDraftChange}
+              onKeyDown={handleComposerKeyDown}
+              onBlur={stopTyping}
+              placeholder={selectedUser ? `Nhắn riêng cho ${selectedUser.name}...` : "Chọn người nhận trước..."}
+              rows={3}
+              disabled={!selectedUser}
+            />
+            <button type="submit" disabled={!selectedUser}>
+              Gửi
+            </button>
+          </form>
+        </section>
       </section>
     </main>
   );

@@ -6,6 +6,11 @@ const messageSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  recipient: {
+    type: String,
+    required: true,
+    trim: true,
+  },
   text: {
     type: String,
     required: true,

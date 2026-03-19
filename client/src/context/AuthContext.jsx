@@ -37,11 +37,11 @@ export function AuthProvider({ children }) {
 
     const data = await parseJsonSafely(response);
     if (!response.ok) {
-      throw new Error(data?.message || "Server is unavailable. Please check the backend.");
+      throw new Error(data?.message || "Máy chủ hiện không phản hồi. Hãy kiểm tra backend.");
     }
 
     if (!data?.token || !data?.user) {
-      throw new Error("Invalid server response.");
+      throw new Error("Phản hồi từ máy chủ không hợp lệ.");
     }
 
     setAuthState({

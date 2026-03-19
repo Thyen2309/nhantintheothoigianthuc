@@ -26,10 +26,17 @@ const findMemoryUserByName = async (name) => {
   return users.find((user) => user.name === trimmedName) || null;
 };
 
-const createMemoryMessage = async ({ sender, text }) => {
+const listMemoryUsers = async () =>
+  users.map((user) => ({
+    _id: user._id,
+    name: user.name,
+  }));
+
+const createMemoryMessage = async ({ sender, recipient, text }) => {
   const message = {
     _id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     sender,
+    recipient,
     text: text.trim(),
     timestamp: new Date(),
   };
@@ -38,11 +45,19 @@ const createMemoryMessage = async ({ sender, text }) => {
   return message;
 };
 
-const listMemoryMessages = async () => messages.slice(-200);
+const listMemoryMessagesForPair = async (currentUser, otherUser) =>
+  messages
+    .filter(
+      (message) =>
+        (message.sender === currentUser && message.recipient === otherUser) ||
+        (message.sender === otherUser && message.recipient === currentUser)
+    )
+    .slice(-200);
 
 module.exports = {
   createMemoryMessage,
   createMemoryUser,
   findMemoryUserByName,
-  listMemoryMessages,
+  listMemoryMessagesForPair,
+  listMemoryUsers,
 };

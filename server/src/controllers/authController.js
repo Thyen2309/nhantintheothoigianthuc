@@ -19,7 +19,7 @@ const register = async (req, res) => {
     const { name, password } = req.body;
 
     if (!name || !password) {
-      return res.status(400).json({ message: "Name and password are required" });
+      return res.status(400).json({ message: "Tên và mật khẩu là bắt buộc" });
     }
 
     const existingUser = connectDB.databaseReady()
@@ -27,7 +27,7 @@ const register = async (req, res) => {
       : await findMemoryUserByName(name);
 
     if (existingUser) {
-      return res.status(409).json({ message: "User already exists" });
+      return res.status(409).json({ message: "Tên người dùng đã tồn tại" });
     }
 
     const user = connectDB.databaseReady()
@@ -45,7 +45,7 @@ const register = async (req, res) => {
       },
     });
   } catch (_error) {
-    res.status(500).json({ message: "Registration failed" });
+    res.status(500).json({ message: "Đăng ký thất bại" });
   }
 };
 
@@ -54,7 +54,7 @@ const login = async (req, res) => {
     const { name, password } = req.body;
 
     if (!name || !password) {
-      return res.status(400).json({ message: "Name and password are required" });
+      return res.status(400).json({ message: "Tên và mật khẩu là bắt buộc" });
     }
 
     const user = connectDB.databaseReady()
@@ -62,12 +62,12 @@ const login = async (req, res) => {
       : await findMemoryUserByName(name);
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Thông tin đăng nhập không đúng" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Thông tin đăng nhập không đúng" });
     }
 
     res.json({
@@ -78,7 +78,7 @@ const login = async (req, res) => {
       },
     });
   } catch (_error) {
-    res.status(500).json({ message: "Login failed" });
+    res.status(500).json({ message: "Đăng nhập thất bại" });
   }
 };
 

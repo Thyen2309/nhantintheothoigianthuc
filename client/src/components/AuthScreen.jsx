@@ -27,11 +27,11 @@ function AuthScreen() {
         <p className="brand-mark">ChattApp</p>
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Username</span>
+            <span>Tên của bạn</span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Charles"
+              placeholder="Nhập tên để vào chat"
               required
             />
           </label>
@@ -39,7 +39,7 @@ function AuthScreen() {
           {error ? <p className="error-text">{error}</p> : null}
 
           <button className="submit-button" type="submit" disabled={submitting}>
-            {submitting ? "Please wait..." : "Login"}
+            {submitting ? "Đang vào phòng chat..." : "Vào chat"}
           </button>
         </form>
       </section>
