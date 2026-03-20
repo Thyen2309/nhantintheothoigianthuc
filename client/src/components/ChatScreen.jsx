@@ -45,11 +45,16 @@ function ChatScreen() {
     messages,
     onlineUsers,
     selectedUserTyping,
+    deleteConversation,
+    deleteMessage,
     sendMessage,
     startTyping,
     stopTyping,
   } = useChat();
   const [draft, setDraft] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingId, setDeletingId] = useState("");
+  const [deletingConversation, setDeletingConversation] = useState(false);
   const listRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
@@ -117,6 +122,7 @@ function ChatScreen() {
       clearTimeout(typingTimeoutRef.current);
     }
 
+    setDeleteError("");
     sendMessage(draft);
     stopTyping();
     setDraft("");
@@ -126,6 +132,34 @@ function ChatScreen() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSend(event);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      setDeleteError("");
+      setDeletingId(messageId);
+      await deleteMessage(messageId);
+    } catch (error) {
+      setDeleteError(error.message);
+    } finally {
+      setDeletingId("");
+    }
+  };
+
+  const handleDeleteConversation = async () => {
+    if (!selectedUser) {
+      return;
+    }
+
+    try {
+      setDeleteError("");
+      setDeletingConversation(true);
+      await deleteConversation();
+    } catch (error) {
+      setDeleteError(error.message);
+    } finally {
+      setDeletingConversation(false);
     }
   };
 
@@ -179,9 +213,19 @@ function ChatScreen() {
               <p className="conversation-title">{selectedUser ? selectedUser.name : "Chưa chọn người nhận"}</p>
               <p className="presence-line">{activeText}</p>
             </div>
-            <button className="logout-button" onClick={logout} type="button">
-              Đăng xuất
-            </button>
+            <div className="header-actions">
+              <button
+                className="danger-button"
+                onClick={handleDeleteConversation}
+                type="button"
+                disabled={!selectedUser || deletingConversation}
+              >
+                {deletingConversation ? "Đang xóa đoạn chat..." : "Xóa đoạn chat"}
+              </button>
+              <button className="logout-button" onClick={logout} type="button">
+                Đăng xuất
+              </button>
+            </div>
           </header>
 
           <div className="chat-list" ref={listRef}>
@@ -198,7 +242,19 @@ function ChatScreen() {
                     <div className={isOwn ? "bubble own" : "bubble other"}>
                       <div className="bubble-topline">
                         <p className="bubble-sender">{isOwn ? "Bạn" : message.sender}</p>
-                        <span className="bubble-time">{formatMessageTime(message.timestamp)}</span>
+                        <div className="bubble-actions">
+                          <span className="bubble-time">{formatMessageTime(message.timestamp)}</span>
+                          {isOwn ? (
+                            <button
+                              type="button"
+                              className="delete-message-button"
+                              onClick={() => handleDeleteMessage(message._id)}
+                              disabled={deletingId === message._id}
+                            >
+                              {deletingId === message._id ? "Đang xóa..." : "Xóa"}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                       <p className="bubble-text">{message.text}</p>
                     </div>
@@ -222,6 +278,8 @@ function ChatScreen() {
               </div>
             ) : null}
           </div>
+
+          {deleteError ? <p className="error-text">{deleteError}</p> : null}
 
           <form className="composer" onSubmit={handleSend}>
             <textarea

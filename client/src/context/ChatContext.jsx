@@ -73,6 +73,22 @@ export function ChatProvider({ children }) {
       setMessages((current) => [...current, message]);
     });
 
+    socket.on("message_deleted", ({ messageId }) => {
+      setMessages((current) => current.filter((message) => message._id !== messageId));
+    });
+
+    socket.on("conversation_deleted", ({ users: pairUsers }) => {
+      const currentSelectedUser = selectedUserRef.current;
+      if (!currentSelectedUser) {
+        return;
+      }
+
+      const hasCurrentPair = pairUsers.includes(user.name) && pairUsers.includes(currentSelectedUser.name);
+      if (hasCurrentPair) {
+        setMessages([]);
+      }
+    });
+
     socket.on("typing_status", ({ from, isTyping }) => {
       setTypingUsers((current) => ({
         ...current,
@@ -129,6 +145,48 @@ export function ChatProvider({ children }) {
     });
   };
 
+  const deleteMessage = async (messageId) => {
+    if (!messageId || !token) {
+      return;
+    }
+
+    const response = await fetch(`/api/messages/delete/${messageId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || "Không thể xóa tin nhắn");
+    }
+
+    setMessages((current) => current.filter((message) => message._id !== messageId));
+    socketRef.current?.emit("delete_message", { messageId });
+  };
+
+  const deleteConversation = async () => {
+    if (!selectedUserName || !token) {
+      return;
+    }
+
+    const response = await fetch(`/api/messages/conversation/${encodeURIComponent(selectedUserName)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || "Không thể xóa đoạn chat");
+    }
+
+    setMessages([]);
+    socketRef.current?.emit("delete_conversation", { recipient: selectedUserName });
+  };
+
   const startTyping = () => {
     if (!selectedUserName) {
       return;
@@ -163,6 +221,8 @@ export function ChatProvider({ children }) {
         messages,
         onlineUsers,
         selectedUserTyping,
+        deleteConversation,
+        deleteMessage,
         sendMessage,
         startTyping,
         stopTyping,

@@ -10,7 +10,11 @@ const messageRoutes = require("./routes/messageRoutes");
 const userRoutes = require("./routes/userRoutes");
 const Message = require("./models/Message");
 const { verifySocketToken } = require("./middleware/authMiddleware");
-const { createMemoryMessage } = require("./store/memoryStore");
+const {
+  createMemoryMessage,
+  deleteMemoryConversation,
+  deleteMemoryMessage,
+} = require("./store/memoryStore");
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 connectDB();
@@ -40,7 +44,7 @@ app.use("/api/users", userRoutes);
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_URL || "http://localhost:5173",
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "DELETE"],
   },
 });
 
@@ -123,15 +127,73 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("delete_message", async ({ messageId }) => {
+    if (!messageId) {
+      return;
+    }
+
+    let deletedMessage;
+
+    if (connectDB.databaseReady()) {
+      const message = await Message.findById(messageId);
+      if (!message || message.sender !== userName) {
+        return;
+      }
+
+      deletedMessage = {
+        _id: message._id,
+        sender: message.sender,
+        recipient: message.recipient,
+      };
+      await message.deleteOne();
+    } else {
+      const result = await deleteMemoryMessage(messageId, userName);
+      if (result.status !== "deleted") {
+        return;
+      }
+
+      deletedMessage = {
+        _id: result.message._id,
+        sender: result.message.sender,
+        recipient: result.message.recipient,
+      };
+    }
+
+    io.to(`user:${deletedMessage.sender}`)
+      .to(`user:${deletedMessage.recipient}`)
+      .emit("message_deleted", { messageId: deletedMessage._id });
+  });
+
+  socket.on("delete_conversation", async ({ recipient }) => {
+    if (!recipient || recipient === userName) {
+      return;
+    }
+
+    if (connectDB.databaseReady()) {
+      await Message.deleteMany({
+        $or: [
+          { sender: userName, recipient },
+          { sender: recipient, recipient: userName },
+        ],
+      });
+    } else {
+      await deleteMemoryConversation(userName, recipient);
+    }
+
+    io.to(`user:${userName}`)
+      .to(`user:${recipient}`)
+      .emit("conversation_deleted", {
+        users: [userName, recipient],
+      });
+  });
+
   socket.on("disconnect", () => {
     onlineUsers.delete(userName);
     emitOnlineUsers();
 
     for (const [key, typers] of typingPairs.entries()) {
       if (typers.delete(userName)) {
-        const otherUser = key
-          .split("::")
-          .find((name) => name !== userName);
+        const otherUser = key.split("::").find((name) => name !== userName);
 
         if (otherUser) {
           io.to(`user:${otherUser}`).emit("typing_status", {
